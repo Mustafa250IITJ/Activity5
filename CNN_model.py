@@ -1,4 +1,4 @@
-# Adding CNN model in main branch
+# modified CNN model with three configuration in experiment branch
 import torch
 import torchvision
 import torch.nn as nn
@@ -23,31 +23,18 @@ test_dataset = datasets.USPS(root='./data', train=False, transform=transform, do
 train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
 test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
 
-# MLP Models
-# class MLP(nn.Module):
-#     def __init__(self):
-#         super(MLP, self).__init__()
-#         self.fc1 = nn.Linear(16*16, 128)
-#         self.fc2 = nn.Linear(128, 64)
-#         self.fc3 = nn.Linear(64, 10)
-
-
-#     def forward(self, x):
-#         x = x.view(x.size(0), -1)
-#         x = torch.relu(self.fc1(x))
-#         x = torch.relu(self.fc2(x))
-#         x = self.fc3(x)
-#         return x
-
 # CNN Models
 class CNN(nn.Module):
-    def __init__(self):
+    def __init__(self, config):
         super(CNN, self).__init__()
-        self.conv1 = nn.Conv2d(1, 32, kernel_size=3, padding=1)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+        self.conv1 = nn.Conv2d(1, config['conv1_channels'], kernel_size=3, padding=1)
+        self.conv2 = nn.Conv2d(config['conv1_channels'], config['conv2_channels'], kernel_size=3, padding=1)
         self.pool = nn.MaxPool2d(2, 2)
-        self.fc1 = nn.Linear(64*4*4, 128)
-        self.fc2 = nn.Linear(128, 10)
+
+        self.fc_input_size = config['conv2_channels'] * 4 * 4
+
+        self.fc1 = nn.Linear(self.fc_input_size, config['fc1_units'])
+        self.fc2 = nn.Linear(config['fc1_units'], 10)
 
     def forward(self, x):
         x = torch.relu(self.conv1(x))
@@ -58,7 +45,6 @@ class CNN(nn.Module):
         x = torch.relu(self.fc1(x))
         x = self.fc2(x)
         return x
-
 
 # train the Models
 def train(model, train_loader, criterion, optimizer, epoch, writer):
@@ -103,14 +89,15 @@ def test(model, test_loader, criterion, epoch, writer=None):
 
 
 # evaluate the Models
-def evaluate_model(model, test_loader):
+def evaluate_model(model, test_loader, epoch):
     criterion = nn.CrossEntropyLoss()
-    preds, targets = test(model, test_loader, criterion, 0, None)
+    preds, targets = test(model, test_loader, criterion, epoch, None)
     accuracy = accuracy_score(targets, preds)
     precision = precision_score(targets, preds, average='weighted')
     recall = recall_score(targets, preds, average='weighted')
     confusion = confusion_matrix(targets, preds)
     return accuracy, precision, recall, confusion
+
 
 # plot the precision-recall curve and loss function using TensorBoard
 def visualize_results(model_name, accuracy, precision):
@@ -123,37 +110,34 @@ def main():
     lr = 0.001
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # mlp_model = MLP().to(device)
-    cnn_model = CNN().to(device)
-    # optimizer_mlp = optim.Adam(mlp_model.parameters(), lr=lr)
-    optimizer_cnn = optim.Adam(cnn_model.parameters(), lr=lr)
+    # different CNN configurations
+    cnn_configs = [
+        {'conv1_channels': 32, 'conv2_channels': 64, 'fc1_units': 128},
+        {'conv1_channels': 64, 'conv2_channels': 128, 'fc1_units': 256},
+        {'conv1_channels': 64, 'conv2_channels': 128, 'fc1_units': 64}
+    ]
 
-    # writer_mlp = SummaryWriter('logs/mlp')
-    writer_cnn = SummaryWriter('logs/cnn')
+    for i, config in enumerate(cnn_configs):
+        model = CNN(config).to(device)
+        optimizer = optim.Adam(model.parameters(), lr=lr)
 
-    for epoch in range(num_epochs):
-        # train(mlp_model, train_loader, nn.CrossEntropyLoss(), optimizer_mlp, epoch, writer_mlp)
-        train(cnn_model, train_loader, nn.CrossEntropyLoss(), optimizer_cnn, epoch, writer_cnn)
+        writer = SummaryWriter(f'logs/cnn_{i}')
 
-        # accuracy_mlp, precision_mlp = evaluate_model(mlp_model, test_loader)
-        # accuracy_cnn, precision_cnn = evaluate_model(cnn_model, test_loader)
-        # accuracy_mlp, precision_mlp, recall_mlp, confusion_mlp = evaluate_model(mlp_model, test_loader)
-        accuracy_cnn, precision_cnn, recall_cnn, confusion_cnn = evaluate_model(cnn_model, test_loader)
+        for epoch in range(num_epochs):
+            train(model, train_loader, nn.CrossEntropyLoss(), optimizer, epoch, writer)
 
-        # visualize_results("MLP", accuracy_mlp, precision_mlp)
-        visualize_results("CNN", accuracy_cnn, precision_cnn)
+            accuracy, precision, recall, confusion = evaluate_model(model, test_loader, epoch)
 
-        # print("MLP Confusion Matrix:")
-        # print(confusion_mlp)
-        print("CNN Confusion Matrix:")
-        print(confusion_cnn)
+            visualize_results(f"CNN_{i}", accuracy, precision)
 
-    # writer_mlp.close()
-    writer_cnn.close()
+            print("CNN Confusion Matrix:")
+            print(confusion)
+
+        writer.close()
+
 
 if __name__ == "__main__":
     main()
-
 
 
 # tensorboard --logdir=logs
